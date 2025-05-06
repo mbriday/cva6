@@ -119,6 +119,7 @@ ${CVA6_REPO_DIR}/core/decoder.sv
 ${CVA6_REPO_DIR}/core/ex_stage.sv
 ${CVA6_REPO_DIR}/core/instr_realign.sv
 ${CVA6_REPO_DIR}/core/id_stage.sv
+${CVA6_REPO_DIR}/core/id2_stage.sv
 ${CVA6_REPO_DIR}/core/issue_read_operands.sv
 ${CVA6_REPO_DIR}/core/issue_stage.sv
 ${CVA6_REPO_DIR}/core/load_unit.sv

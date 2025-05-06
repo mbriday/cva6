@@ -77,6 +77,7 @@ core/frontend/instr_scan.sv
 core/frontend/instr_queue.sv
 core/frontend/frontend.sv
 core/id_stage.sv
+core/id2_stage.sv
 core/instr_realign.sv
 core/issue_read_operands.sv
 core/issue_stage.sv

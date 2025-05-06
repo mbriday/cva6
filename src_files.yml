@@ -27,6 +27,7 @@ ariane:
     src/frontend/frontend.sv,
     src/icache.sv,
     src/id_stage.sv,
+    src/id2_stage.sv,
     src/instr_realigner.sv,
     src/issue_read_operands.sv,
     src/issue_stage.sv,

@@ -43,18 +43,18 @@ module id_stage #(
     // Handshake's ready between fetch and decode - FRONTEND
     output logic [CVA6Cfg.NrIssuePorts-1:0] fetch_entry_ready_o,
     // Handshake's data between decode and issue - ISSUE
-    output scoreboard_entry_t [CVA6Cfg.NrIssuePorts-1:0] issue_entry_o,
-    output scoreboard_entry_t [CVA6Cfg.NrIssuePorts-1:0] issue_entry_o_prev,
+    output scoreboard_entry_t [CVA6Cfg.NrIssuePorts-1:0] issue_entry_o,       //=>id2.decoded_instr_i
+    output scoreboard_entry_t [CVA6Cfg.NrIssuePorts-1:0] issue_entry_o_prev,  //=>id2.decoded_instr_i_prev
     // Instruction value - ISSUE
-    output logic [CVA6Cfg.NrIssuePorts-1:0][31:0] orig_instr_o,
+    output logic [CVA6Cfg.NrIssuePorts-1:0][31:0] orig_instr_o,               //=>id2.orig_instr_i
     // Handshake's valid between decode and issue - ISSUE
-    output logic [CVA6Cfg.NrIssuePorts-1:0] issue_entry_valid_o,
+    output logic [CVA6Cfg.NrIssuePorts-1:0] issue_entry_valid_o,              //=>id2.decoded_instr_valid_i
     // Report if instruction is a control flow instruction - ISSUE
-    output logic [CVA6Cfg.NrIssuePorts-1:0] is_ctrl_flow_o,
+    output logic [CVA6Cfg.NrIssuePorts-1:0] is_ctrl_flow_o,                   //=>id2.is_ctrl_flow_i
     // Handshake's acknowlege between decode and issue - ISSUE
-    input logic [CVA6Cfg.NrIssuePorts-1:0] issue_instr_ack_i,
+    input logic [CVA6Cfg.NrIssuePorts-1:0] issue_instr_ack_i,                 //=>id2.decoded_instr_ack_o
     // Information dedicated to RVFI - RVFI
-    output logic [CVA6Cfg.NrIssuePorts-1:0] rvfi_is_compressed_o,
+    output logic [CVA6Cfg.NrIssuePorts-1:0] rvfi_is_compressed_o,             //=>id2.rvfi_is_compressed_i
     // Current privilege level - CSR_REGFILE
     input riscv::priv_lvl_t priv_lvl_i,
     // Current virtualization mode - CSR_REGFILE

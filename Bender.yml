@@ -101,6 +101,7 @@ sources:
       - core/acc_dispatcher.sv
       - core/instr_realign.sv
       - core/id_stage.sv
+      - core/id2_stage.sv
       - core/issue_read_operands.sv
       - core/issue_stage.sv
       - core/load_unit.sv

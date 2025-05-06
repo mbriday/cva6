@@ -187,6 +187,7 @@ def main():
         file.append("../core/frontend/instr_scan.sv")
         file.append("../core/instr_realign.sv")
         file.append("../core/id_stage.sv")
+        file.append("../core/id2_stage.sv")
         file.append("../core/issue_stage.sv")
         file.append("../core/ex_stage.sv")
         file.append("../core/commit_stage.sv")

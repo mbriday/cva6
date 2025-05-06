@@ -413,13 +413,22 @@ module cva6
   logic [CVA6Cfg.NrIssuePorts-1:0] fetch_ready_id_if;
 
   // --------------
-  // ID <-> ISSUE
+  // ID <-> ID2
   // --------------
-  scoreboard_entry_t [CVA6Cfg.NrIssuePorts-1:0] issue_entry_id_issue, issue_entry_id_issue_prev;
-  logic [CVA6Cfg.NrIssuePorts-1:0][31:0] orig_instr_id_issue;
-  logic [CVA6Cfg.NrIssuePorts-1:0] issue_entry_valid_id_issue;
-  logic [CVA6Cfg.NrIssuePorts-1:0] is_ctrl_fow_id_issue;
-  logic [CVA6Cfg.NrIssuePorts-1:0] issue_instr_issue_id;
+  scoreboard_entry_t [CVA6Cfg.NrIssuePorts-1:0] issue_entry_id_id2, issue_entry_id_id2_prev;
+  logic [CVA6Cfg.NrIssuePorts-1:0][31:0] orig_instr_id_id2;
+  logic [CVA6Cfg.NrIssuePorts-1:0] issue_entry_valid_id_id2;
+  logic [CVA6Cfg.NrIssuePorts-1:0] is_ctrl_flow_id_id2;
+  logic [CVA6Cfg.NrIssuePorts-1:0] issue_instr_id2_id;
+
+  // --------------
+  // ID2 <-> ISSUE
+  // --------------
+  scoreboard_entry_t [CVA6Cfg.NrIssuePorts-1:0] issue_entry_id2_issue, issue_entry_id2_issue_prev;
+  logic [CVA6Cfg.NrIssuePorts-1:0][31:0] orig_instr_id2_issue;
+  logic [CVA6Cfg.NrIssuePorts-1:0] issue_entry_valid_id2_issue;
+  logic [CVA6Cfg.NrIssuePorts-1:0] is_ctrl_flow_id2_issue;
+  logic [CVA6Cfg.NrIssuePorts-1:0] issue_instr_issue_id2;
 
   // --------------
   // ISSUE <-> EX
@@ -651,7 +660,8 @@ module cva6
   //RVFI
   lsu_ctrl_t rvfi_lsu_ctrl;
   logic [CVA6Cfg.PLEN-1:0] rvfi_mem_paddr;
-  logic [CVA6Cfg.NrIssuePorts-1:0] rvfi_is_compressed;
+  logic [CVA6Cfg.NrIssuePorts-1:0] rvfi_is_compressed_id_id2;
+  logic [CVA6Cfg.NrIssuePorts-1:0] rvfi_is_compressed_id2_issue;
   rvfi_probes_csr_t rvfi_csr;
 
   // Accelerator port
@@ -718,14 +728,15 @@ module cva6
       .fetch_entry_valid_i(fetch_valid_if_id),
       .fetch_entry_ready_o(fetch_ready_id_if),
 
-      .issue_entry_o      (issue_entry_id_issue),
-      .issue_entry_o_prev (issue_entry_id_issue_prev),
-      .orig_instr_o       (orig_instr_id_issue),
-      .issue_entry_valid_o(issue_entry_valid_id_issue),
-      .is_ctrl_flow_o     (is_ctrl_fow_id_issue),
-      .issue_instr_ack_i  (issue_instr_issue_id),
+      // connect with next stage (old: issue, new: id2)
+      .issue_entry_o      (issue_entry_id_id2),
+      .issue_entry_o_prev (issue_entry_id_id2_prev),
+      .orig_instr_o       (orig_instr_id_id2),
+      .issue_entry_valid_o(issue_entry_valid_id_id2),
+      .is_ctrl_flow_o     (is_ctrl_flow_id_id2),
+      .issue_instr_ack_i  (issue_instr_id2_id),
 
-      .rvfi_is_compressed_o(rvfi_is_compressed),
+      .rvfi_is_compressed_o(rvfi_is_compressed_id_id2),
 
       .priv_lvl_i        (priv_lvl),
       .v_i               (v),
@@ -816,6 +827,51 @@ module cva6
   if (CVA6Cfg.CvxifEn && CVA6Cfg.EnableAccelerator) begin : gen_err_xif_and_acc
     $error("X-interface and accelerator port cannot be enabled at the same time.");
   end
+  // ---------
+  // ID2 stage
+  // ---------
+  id2_stage #(
+      .CVA6Cfg(CVA6Cfg),
+      .branchpredict_sbe_t(branchpredict_sbe_t),
+      .dcache_req_i_t(dcache_req_i_t),
+      .dcache_req_o_t(dcache_req_o_t),
+      .exception_t(exception_t),
+      .fetch_entry_t(fetch_entry_t),
+      .jvt_t(jvt_t),
+      .irq_ctrl_t(irq_ctrl_t),
+      .scoreboard_entry_t(scoreboard_entry_t),
+      .interrupts_t(interrupts_t),
+      .INTERRUPTS(INTERRUPTS),
+      .x_compressed_req_t(x_compressed_req_t),
+      .x_compressed_resp_t(x_compressed_resp_t)
+  ) id2_stage_i (
+    .clk_i                  (clk_i),
+    .rst_ni                 (rst_ni),
+    .flush_i                (flush_ctrl_if),
+
+    // Inputs from ID stage
+    .decoded_instr_valid_i  (issue_entry_valid_id_id2),
+    .decoded_instr_i        (issue_entry_id_id2),
+    .decoded_instr_i_prev   (issue_entry_id_id2_prev),
+    .orig_instr_i           (orig_instr_id_id2),
+    .is_ctrl_flow_i         (is_ctrl_flow_id_id2),
+
+    // Output ack back to ID stage
+    .decoded_instr_ack_o    (issue_instr_id2_id),
+
+    // Outputs to ISSUE stage
+    .decoded_instr_valid_o  (issue_entry_valid_id2_issue),
+    .decoded_instr_o        (issue_entry_id2_issue),
+    .decoded_instr_o_prev   (issue_entry_id2_issue_prev),
+    .orig_instr_o           (orig_instr_id2_issue),
+    .is_ctrl_flow_o         (is_ctrl_flow_id2_issue),
+
+    // Ack input from ISSUE stage
+    .decoded_instr_ack_i    (issue_instr_issue_id2),
+
+    .rvfi_is_compressed_i   (rvfi_is_compressed_id_id2),
+    .rvfi_is_compressed_o   (rvfi_is_compressed_id2_issue)
+  );
 
   // ---------
   // Issue
@@ -840,12 +896,12 @@ module cva6
       .flush_i                 (flush_ctrl_id),
       .stall_i                 (stall_acc_id),
       // ID Stage
-      .decoded_instr_i         (issue_entry_id_issue),
-      .decoded_instr_i_prev    (issue_entry_id_issue_prev),
-      .orig_instr_i            (orig_instr_id_issue),
-      .decoded_instr_valid_i   (issue_entry_valid_id_issue),
-      .is_ctrl_flow_i          (is_ctrl_fow_id_issue),
-      .decoded_instr_ack_o     (issue_instr_issue_id),
+      .decoded_instr_i         (issue_entry_id2_issue),
+      .decoded_instr_i_prev    (issue_entry_id2_issue_prev),
+      .orig_instr_i            (orig_instr_id2_issue),
+      .decoded_instr_valid_i   (issue_entry_valid_id2_issue),
+      .is_ctrl_flow_i          (is_ctrl_flow_id2_issue),
+      .decoded_instr_ack_o     (issue_instr_issue_id2),
       // Functional Units
       .rs1_forwarding_o        (rs1_forwarding_id_ex),
       .rs2_forwarding_o        (rs2_forwarding_id_ex),
@@ -1773,17 +1829,17 @@ module cva6
   ) i_cva6_rvfi_probes (
 
       .flush_i            (flush_ctrl_if),
-      .issue_instr_ack_i  (issue_instr_issue_id),
+      .issue_instr_ack_i  (issue_instr_issue_id2),
       .fetch_entry_valid_i(fetch_valid_if_id),
       .instruction_i      (rvfi_fetch_instr),
-      .is_compressed_i    (rvfi_is_compressed),
+      .is_compressed_i    (rvfi_is_compressed_id2_issue),
 
       .issue_pointer_i (rvfi_issue_pointer),
       .commit_pointer_i(rvfi_commit_pointer),
 
       .flush_unissued_instr_i(flush_unissued_instr_ctrl_id),
-      .decoded_instr_valid_i (issue_entry_valid_id_issue),
-      .decoded_instr_ack_i   (issue_instr_issue_id),
+      .decoded_instr_valid_i (issue_entry_valid_id2_issue),
+      .decoded_instr_ack_i   (issue_instr_issue_id2),
 
       .rs1_i(rvfi_rs1),
       .rs2_i(rvfi_rs2),
