@@ -43,14 +43,8 @@ module id_stage #(
     // Handshake's ready between fetch and decode - FRONTEND
     output logic [CVA6Cfg.NrIssuePorts-1:0] fetch_entry_ready_o,
     // Handshake's data between decode and issue - ISSUE
-    output scoreboard_entry_t [CVA6Cfg.NrIssuePorts-1:0] issue_entry_o,       //=>id2.decoded_instr_i
-    output scoreboard_entry_t [CVA6Cfg.NrIssuePorts-1:0] issue_entry_o_prev,  //=>id2.decoded_instr_i_prev
-    // Instruction value - ISSUE
-    output logic [CVA6Cfg.NrIssuePorts-1:0][31:0] orig_instr_o,               //=>id2.orig_instr_i
     // Handshake's valid between decode and issue - ISSUE
     output logic [CVA6Cfg.NrIssuePorts-1:0] issue_entry_valid_o,              //=>id2.decoded_instr_valid_i
-    // Report if instruction is a control flow instruction - ISSUE
-    output logic [CVA6Cfg.NrIssuePorts-1:0] is_ctrl_flow_o,                   //=>id2.is_ctrl_flow_i
     // Handshake's acknowlege between decode and issue - ISSUE
     input logic [CVA6Cfg.NrIssuePorts-1:0] issue_instr_ack_i,                 //=>id2.decoded_instr_ack_o
     // Information dedicated to RVFI - RVFI
@@ -94,23 +88,44 @@ module id_stage #(
     // Data cache request ouput - CACHE
     input dcache_req_o_t dcache_req_ports_i,
     // Data cache request input - CACHE
-    output dcache_req_i_t dcache_req_ports_o
+    output dcache_req_i_t dcache_req_ports_o,
+    // output for the next stage => decoder //
+    // instruction is compressed (from compressed_decoder to decoder)
+    output logic [CVA6Cfg.NrIssuePorts-1:0]         is_compressed_dec_o,
+    output logic [CVA6Cfg.NrIssuePorts-1:0]         is_macro_instr_o,
+    output logic [CVA6Cfg.NrIssuePorts-1:0]         is_zcmt_instr_o,
+    output logic [CVA6Cfg.NrIssuePorts-1:0]         is_illegal_dec_o,
+    output logic [CVA6Cfg.NrIssuePorts-1:0][31:0]   instruction_dec_o,
+    output logic                                    is_last_macro_instr_o,
+    output logic                                    is_double_rd_macro_instr_o,
+    output logic [CVA6Cfg.XLEN-1:0]                 jump_address_o,
+    output fetch_entry_t [CVA6Cfg.NrIssuePorts-1:0] fetch_entry_o
+
 );
-  // ID/ISSUE register stage
+  // ID/ID2 register stage
   typedef struct packed {
-    logic              valid;
-    scoreboard_entry_t sbe;
-    logic [31:0]       orig_instr;
-    logic              is_ctrl_flow;
+    logic         valid;
+    logic         is_compressed_dec;
+    logic         is_macro_instr;
+    logic         is_zcmt_instr;
+    logic         is_illegal_dec;
+    logic[31:0]   instruction_dec;
+    fetch_entry_t fetch_entry;
   } issue_struct_t;
   issue_struct_t [CVA6Cfg.NrIssuePorts-1:0] issue_n, issue_q;
+
+  //pipeline registers not duplicated with issue ports
+  logic                    is_last_macro_instr_n,is_last_macro_instr_q;
+  logic                    is_double_rd_macro_instr_n, is_double_rd_macro_instr_q;
+  logic [CVA6Cfg.XLEN-1:0] jump_address_n, jump_address_q;
+
   // stall required for ZCMP ZCMT CVXIF
   logic              [CVA6Cfg.NrIssuePorts-1:0]       stall_instr_fetch;
 
-  logic              [CVA6Cfg.NrIssuePorts-1:0]       is_control_flow_instr;
-  scoreboard_entry_t [CVA6Cfg.NrIssuePorts-1:0]       decoded_instruction;
+  // logic              [CVA6Cfg.NrIssuePorts-1:0]       is_control_flow_instr;
+  // scoreboard_entry_t [CVA6Cfg.NrIssuePorts-1:0]       decoded_instruction;
   logic              [CVA6Cfg.NrIssuePorts-1:0]       decoded_instruction_valid;
-  logic              [CVA6Cfg.NrIssuePorts-1:0][31:0] orig_instr;
+  // logic              [CVA6Cfg.NrIssuePorts-1:0][31:0] orig_instr;
 
   // Compressed decoder signals
   logic              [CVA6Cfg.NrIssuePorts-1:0]       is_illegal_rvc;
@@ -135,15 +150,15 @@ module id_stage #(
   logic              [                    31:0]       instruction_zcmp;
   logic                                               is_compressed_zcmp;
   logic                                               stall_macro_deco_zcmp;
-  logic                                               is_last_macro_instr;
-  logic                                               is_double_rd_macro_instr;
+  // logic                                               is_last_macro_instr;
+  // logic                                               is_double_rd_macro_instr;
 
   // ZCMT decoder signals
   logic                                               is_illegal_zcmt;
   logic              [                    31:0]       instruction_zcmt;
   logic                                               is_compressed_zcmt;
   logic                                               stall_macro_deco_zcmt;
-  logic              [        CVA6Cfg.XLEN-1:0]       jump_address;
+  // logic              [        CVA6Cfg.XLEN-1:0]       jump_address;
 
   // Decoder signals
   logic              [CVA6Cfg.NrIssuePorts-1:0]       is_illegal_deco;
@@ -187,16 +202,16 @@ module id_stage #(
           .illegal_instr_o           (is_illegal_zcmp),
           .is_compressed_o           (is_compressed_zcmp),
           .fetch_stall_o             (stall_macro_deco_zcmp),
-          .is_last_macro_instr_o     (is_last_macro_instr),
-          .is_double_rd_macro_instr_o(is_double_rd_macro_instr)
+          .is_last_macro_instr_o     (is_last_macro_instr_n),
+          .is_double_rd_macro_instr_o(is_double_rd_macro_instr_n)
       );
     end else begin
-      assign instruction_zcmp         = instruction_rvc;
-      assign is_illegal_zcmp          = is_illegal_rvc;
-      assign is_compressed_zcmp       = is_compressed_rvc;
-      assign stall_macro_deco_zcmp    = '0;
-      assign is_last_macro_instr      = '0;
-      assign is_double_rd_macro_instr = '0;
+      assign instruction_zcmp           = instruction_rvc;
+      assign is_illegal_zcmp            = is_illegal_rvc;
+      assign is_compressed_zcmp         = is_compressed_rvc;
+      assign stall_macro_deco_zcmp      = '0;
+      assign is_last_macro_instr_n      = '0;
+      assign is_double_rd_macro_instr_n = '0;
     end
 
     if (CVA6Cfg.RVZCMT) begin
@@ -221,14 +236,14 @@ module id_stage #(
           .jvt_i          (jvt_i),
           .req_port_i     (dcache_req_ports_i),
           .req_port_o     (dcache_req_ports_o),
-          .jump_address_o (jump_address)
+          .jump_address_o (jump_address_n)
       );
     end else begin
       assign instruction_zcmt      = instruction_rvc;
       assign is_illegal_zcmt       = is_illegal_rvc;
       assign is_compressed_zcmt    = is_compressed_rvc;
       assign stall_macro_deco_zcmt = '0;
-      assign jump_address          = '0;
+      assign jump_address_n        = '0;
     end
 
     if (CVA6Cfg.RVZCMT) begin
@@ -293,59 +308,23 @@ module id_stage #(
 
   assign rvfi_is_compressed_o = is_compressed_rvc;
 
-  for (genvar i = 0; i < CVA6Cfg.NrIssuePorts; i++) begin
-    decoder #(
-        .CVA6Cfg(CVA6Cfg),
-        .branchpredict_sbe_t(branchpredict_sbe_t),
-        .exception_t(exception_t),
-        .irq_ctrl_t(irq_ctrl_t),
-        .scoreboard_entry_t(scoreboard_entry_t),
-        .interrupts_t(interrupts_t),
-        .INTERRUPTS(INTERRUPTS)
-    ) decoder_i (
-        .debug_req_i,
-        .irq_ctrl_i,
-        .irq_i,
-        .pc_i                      (fetch_entry_i[i].address),
-        .is_compressed_i           (is_compressed_deco[i]),
-        .is_macro_instr_i          (is_macro_instr[i]),
-        .is_zcmt_i                 (is_zcmt_instr[i]),
-        .is_last_macro_instr_i     (is_last_macro_instr),
-        .is_double_rd_macro_instr_i(is_double_rd_macro_instr),
-        .jump_address_i            (jump_address),
-        .is_illegal_i              (is_illegal_deco[i]),
-        .instruction_i             (instruction_deco[i]),
-        .compressed_instr_i        (fetch_entry_i[i].instruction[15:0]),
-        .branch_predict_i          (fetch_entry_i[i].branch_predict),
-        .ex_i                      (fetch_entry_i[i].ex),
-        .priv_lvl_i                (priv_lvl_i),
-        .v_i                       (v_i),
-        .debug_mode_i              (debug_mode_i),
-        .fs_i,
-        .vfs_i,
-        .frm_i,
-        .vs_i,
-        .tvm_i,
-        .tw_i,
-        .vtw_i,
-        .tsr_i,
-        .hu_i,
-        .instruction_o             (decoded_instruction[i]),
-        .orig_instr_o              (orig_instr[i]),
-        .is_control_flow_instr_o   (is_control_flow_instr[i])
-    );
-  end
+  //no more any decoder here... => this is for the next stage ID2
 
   // ------------------
   // 3. Pipeline Register
   // ------------------
   for (genvar i = 0; i < CVA6Cfg.NrIssuePorts; i++) begin
-    assign issue_entry_o[i] = issue_q[i].sbe;
-    assign issue_entry_o_prev[i] = CVA6Cfg.FpgaAlteraEn ? issue_n[i].sbe : '0;
     assign issue_entry_valid_o[i] = issue_q[i].valid;
-    assign is_ctrl_flow_o[i] = issue_q[i].is_ctrl_flow;
-    assign orig_instr_o[i] = issue_q[i].orig_instr;
+    assign is_compressed_dec_o = issue_q[i].is_compressed_dec;
+    assign is_macro_instr_o = issue_q[i].is_macro_instr;
+    assign is_zcmt_instr_o = issue_q[i].is_zcmt_instr;
+    assign is_illegal_dec_o = issue_q[i].is_illegal_dec;
+    assign instruction_dec_o = issue_q[i].instruction_dec;
+    assign fetch_entry_o = issue_q[i].fetch_entry;
   end
+  assign is_last_macro_instr_o = is_last_macro_instr_q;
+  assign is_double_rd_macro_instr_o = is_double_rd_macro_instr_q;
+  assign jump_address_o = jump_address_q;
 
   if (CVA6Cfg.SuperscalarEn) begin
     always_comb begin
@@ -374,9 +353,15 @@ module id_stage #(
           fetch_entry_ready_o[0] = ~stall_instr_fetch[0];
           issue_n[0] = '{
               decoded_instruction_valid[0],
-              decoded_instruction[0],
-              orig_instr[0],
-              is_control_flow_instr[0]
+              // decoded_instruction[0],
+              // orig_instr[0],
+              // is_control_flow_instr[0],
+              is_compressed_deco[0],
+              is_macro_instr[0],
+              is_zcmt_instr[0],
+              is_illegal_deco[0],
+              instruction_deco[0],
+              fetch_entry_i[0]
           };
         end
       end
@@ -387,18 +372,30 @@ module id_stage #(
             fetch_entry_ready_o[1] = ~stall_instr_fetch[1];
             issue_n[1] = '{
                 decoded_instruction_valid[1],
-                decoded_instruction[1],
-                orig_instr[1],
-                is_control_flow_instr[1]
+                // decoded_instruction[1],
+                // orig_instr[1],
+                // is_control_flow_instr[1],
+                is_compressed_deco[1],
+                is_macro_instr[1],
+                is_zcmt_instr[1],
+                is_illegal_deco[1],
+                instruction_deco[1],
+                fetch_entry_i[1]
             };
           end
         end else if (fetch_entry_valid_i[0]) begin
           fetch_entry_ready_o[0] = ~stall_instr_fetch[0];
           issue_n[1] = '{
               decoded_instruction_valid[0],
-              decoded_instruction[0],
-              orig_instr[0],
-              is_control_flow_instr[0]
+              // decoded_instruction[0],
+              // orig_instr[0],
+              // is_control_flow_instr[0],
+              is_compressed_deco[0],
+              is_macro_instr[0],
+              is_zcmt_instr[0],
+              is_illegal_deco[0],
+              instruction_deco[0],
+              fetch_entry_i[0]
           };
         end
       end
@@ -419,7 +416,6 @@ module id_stage #(
       // Clear the valid flag if issue has acknowledged the instruction
       if (issue_instr_ack_i[0]) issue_n[0].valid = 1'b0;
 
-      // TODO: refaire
       // if we have a space in the register and the fetch is valid, go get it
       // or the issue stage is currently acknowledging an instruction, which means that we will have space
       // for a new instruction
@@ -427,9 +423,15 @@ module id_stage #(
         fetch_entry_ready_o[0] = ~stall_instr_fetch[0];
         issue_n[0] = '{
             decoded_instruction_valid[0],
-            decoded_instruction[0],
-            orig_instr[0],
-            is_control_flow_instr[0]
+            // decoded_instruction[0],
+            // orig_instr[0],
+            // is_control_flow_instr[0],
+            is_compressed_deco[0],
+            is_macro_instr[0],
+            is_zcmt_instr[0],
+            is_illegal_deco[0],
+            instruction_deco[0],
+            fetch_entry_i[0]
         };
       end
 
@@ -438,13 +440,20 @@ module id_stage #(
     end
   end
   // -------------------------
-  // Registers (ID <-> Issue)
+  // Registers (ID <-> ID2)
   // -------------------------
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (~rst_ni) begin
       issue_q <= '0;
+      is_last_macro_instr_q = '0;
+      is_double_rd_macro_instr_q = '0;
+      jump_address_q = '0;
+
     end else begin
       issue_q <= issue_n;
+      is_last_macro_instr_q = is_last_macro_instr_n;
+      is_double_rd_macro_instr_q = is_double_rd_macro_instr_n;
+      jump_address_q = jump_address_n;
     end
   end
 

@@ -415,11 +415,24 @@ module cva6
   // --------------
   // ID <-> ID2
   // --------------
-  scoreboard_entry_t [CVA6Cfg.NrIssuePorts-1:0] issue_entry_id_id2, issue_entry_id_id2_prev;
-  logic [CVA6Cfg.NrIssuePorts-1:0][31:0] orig_instr_id_id2;
+  // TODO update
+  // scoreboard_entry_t [CVA6Cfg.NrIssuePorts-1:0] issue_entry_id_id2, issue_entry_id_id2_prev;
+  // logic [CVA6Cfg.NrIssuePorts-1:0][31:0] orig_instr_id_id2;
   logic [CVA6Cfg.NrIssuePorts-1:0] issue_entry_valid_id_id2;
-  logic [CVA6Cfg.NrIssuePorts-1:0] is_ctrl_flow_id_id2;
+  // logic [CVA6Cfg.NrIssuePorts-1:0] is_ctrl_flow_id_id2;
   logic [CVA6Cfg.NrIssuePorts-1:0] issue_instr_id2_id;
+
+  logic [CVA6Cfg.NrIssuePorts-1:0]         is_compressed_id_id2;
+  logic [CVA6Cfg.NrIssuePorts-1:0]         is_macro_instr_id_id2;
+  logic [CVA6Cfg.NrIssuePorts-1:0]         is_zcmt_instr_id_id2;
+  logic [CVA6Cfg.NrIssuePorts-1:0]         is_illegal_dec_id_id2;
+  logic [CVA6Cfg.NrIssuePorts-1:0][31:0]   instruction_dec_id_id2;
+  logic                                    is_last_macro_instr_id_id2;
+  logic                                    is_double_rd_macro_instr_id_id2;
+  logic [CVA6Cfg.XLEN-1:0]                 jump_address_id_id2;
+  fetch_entry_t [CVA6Cfg.NrIssuePorts-1:0] fetch_entry_id_id2;
+
+
 
   // --------------
   // ID2 <-> ISSUE
@@ -729,11 +742,11 @@ module cva6
       .fetch_entry_ready_o(fetch_ready_id_if),
 
       // connect with next stage (old: issue, new: id2)
-      .issue_entry_o      (issue_entry_id_id2),
-      .issue_entry_o_prev (issue_entry_id_id2_prev),
-      .orig_instr_o       (orig_instr_id_id2),
+      // .issue_entry_o      (issue_entry_id_id2),
+      // .issue_entry_o_prev (issue_entry_id_id2_prev),
+      // .orig_instr_o       (orig_instr_id_id2),
       .issue_entry_valid_o(issue_entry_valid_id_id2),
-      .is_ctrl_flow_o     (is_ctrl_flow_id_id2),
+      // .is_ctrl_flow_o     (is_ctrl_flow_id_id2),
       .issue_instr_ack_i  (issue_instr_id2_id),
 
       .rvfi_is_compressed_o(rvfi_is_compressed_id_id2),
@@ -760,7 +773,18 @@ module cva6
       .jvt_i             (jvt),
       // DCACHE interfaces
       .dcache_req_ports_i(dcache_req_ports_cache_id),
-      .dcache_req_ports_o(dcache_req_ports_id_cache)
+      .dcache_req_ports_o(dcache_req_ports_id_cache),
+      //Rajout
+      .is_compressed_dec_o(is_compressed_id_id2),
+      .is_macro_instr_o(is_macro_instr_id_id2),
+      .is_zcmt_instr_o(is_zcmt_instr_id_id2),
+      .is_illegal_dec_o(is_illegal_dec_id_id2),
+      .instruction_dec_o(instruction_dec_id_id2),
+      .is_last_macro_instr_o(is_last_macro_instr_id_id2),
+      .is_double_rd_macro_instr_o(is_double_rd_macro_instr_id_id2),
+      .jump_address_o(jump_address_id_id2),
+      .fetch_entry_o(fetch_entry_id_id2)
+
   );
 
   logic [CVA6Cfg.NrWbPorts-1:0][CVA6Cfg.TRANS_ID_BITS-1:0] trans_id_ex_id;
@@ -848,13 +872,14 @@ module cva6
     .clk_i                  (clk_i),
     .rst_ni                 (rst_ni),
     .flush_i                (flush_ctrl_if),
+    .debug_req_i,
 
     // Inputs from ID stage
     .decoded_instr_valid_i  (issue_entry_valid_id_id2),
-    .decoded_instr_i        (issue_entry_id_id2),
-    .decoded_instr_i_prev   (issue_entry_id_id2_prev),
-    .orig_instr_i           (orig_instr_id_id2),
-    .is_ctrl_flow_i         (is_ctrl_flow_id_id2),
+    // .decoded_instr_i        (issue_entry_id_id2),
+    // .decoded_instr_i_prev   (issue_entry_id_id2_prev),
+    // .orig_instr_i           (orig_instr_id_id2),
+    // .is_ctrl_flow_i         (is_ctrl_flow_id_id2),
 
     // Output ack back to ID stage
     .decoded_instr_ack_o    (issue_instr_id2_id),
@@ -870,7 +895,34 @@ module cva6
     .decoded_instr_ack_i    (issue_instr_issue_id2),
 
     .rvfi_is_compressed_i   (rvfi_is_compressed_id_id2),
-    .rvfi_is_compressed_o   (rvfi_is_compressed_id2_issue)
+    .rvfi_is_compressed_o   (rvfi_is_compressed_id2_issue),
+
+    // input from ID stage
+    .is_compressed_dec_i(is_compressed_id_id2),
+    .is_macro_instr_i(is_macro_instr_id_id2),
+    .is_zcmt_instr_i(is_zcmt_instr_id_id2),
+    .is_illegal_dec_i(is_illegal_dec_id_id2),
+    .instruction_dec_i(instruction_dec_id_id2),
+    .is_last_macro_instr_i(is_last_macro_instr_id_id2),
+    .is_double_rd_macro_instr_i(is_double_rd_macro_instr_id_id2),
+    .jump_address_i(jump_address_id_id2),
+    .fetch_entry_i(fetch_entry_id_id2),
+
+    .priv_lvl_i        (priv_lvl),
+    .v_i               (v),
+    .fs_i              (fs),
+    .vfs_i             (vfs),
+    .frm_i             (frm_csr_id_issue_ex),
+    .vs_i              (vs),
+    .irq_i             (irq_i),
+    .irq_ctrl_i        (irq_ctrl_csr_id),
+    .debug_mode_i      (debug_mode),
+    .tvm_i             (tvm_csr_id),
+    .tw_i              (tw_csr_id),
+    .vtw_i             (vtw_csr_id),
+    .tsr_i             (tsr_csr_id),
+    .hu_i              (hu)
+
   );
 
   // ---------

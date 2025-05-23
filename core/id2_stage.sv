@@ -21,13 +21,15 @@ module id2_stage #(
     input logic rst_ni,
     // Fetch flush request - CONTROLLER
     input logic flush_i,
+    // Debug (async) request - SUBSYSTEM
+    input logic debug_req_i,
 
     // Inputs from ID stage
     input  logic [CVA6Cfg.NrIssuePorts-1:0]              decoded_instr_valid_i,
-    input  scoreboard_entry_t [CVA6Cfg.NrIssuePorts-1:0] decoded_instr_i,
-    input  scoreboard_entry_t [CVA6Cfg.NrIssuePorts-1:0] decoded_instr_i_prev,
-    input  logic [CVA6Cfg.NrIssuePorts-1:0][31:0]        orig_instr_i,
-    input  logic [CVA6Cfg.NrIssuePorts-1:0]              is_ctrl_flow_i,
+    // input  scoreboard_entry_t [CVA6Cfg.NrIssuePorts-1:0] decoded_instr_i,
+    // input  scoreboard_entry_t [CVA6Cfg.NrIssuePorts-1:0] decoded_instr_i_prev,
+    // input  logic [CVA6Cfg.NrIssuePorts-1:0][31:0]        orig_instr_i,
+    // input  logic [CVA6Cfg.NrIssuePorts-1:0]              is_ctrl_flow_i,
 
     // Output to ID stage (ack)
     output logic [CVA6Cfg.NrIssuePorts-1:0]              decoded_instr_ack_o,
@@ -44,7 +46,47 @@ module id2_stage #(
 
     // input/output to RVFI stage
     input  logic [CVA6Cfg.NrIssuePorts-1:0]              rvfi_is_compressed_i,
-    output logic [CVA6Cfg.NrIssuePorts-1:0]              rvfi_is_compressed_o
+    output logic [CVA6Cfg.NrIssuePorts-1:0]              rvfi_is_compressed_o,
+    //******************** rajout *************************//
+    // instruction is compressed (from compressed_decoder to decoder)
+    input logic [CVA6Cfg.NrIssuePorts-1:0]         is_compressed_dec_i,
+    input logic [CVA6Cfg.NrIssuePorts-1:0]         is_macro_instr_i,
+    input logic [CVA6Cfg.NrIssuePorts-1:0]         is_zcmt_instr_i,
+    input logic [CVA6Cfg.NrIssuePorts-1:0]         is_illegal_dec_i,
+    input logic [CVA6Cfg.NrIssuePorts-1:0][31:0]   instruction_dec_i,
+    input logic                                    is_last_macro_instr_i,
+    input logic                                    is_double_rd_macro_instr_i,
+    input logic [CVA6Cfg.XLEN-1:0]                 jump_address_i,
+    input fetch_entry_t [CVA6Cfg.NrIssuePorts-1:0] fetch_entry_i,
+
+    // Current privilege level - CSR_REGFILE
+    input riscv::priv_lvl_t priv_lvl_i,
+    // Current virtualization mode - CSR_REGFILE
+    input logic v_i,
+    // Floating point extension status - CSR_REGFILE
+    input riscv::xs_t fs_i,
+    // Floating point extension virtual status - CSR_REGFILE
+    input riscv::xs_t vfs_i,
+    // Floating point dynamic rounding mode - CSR_REGFILE
+    input logic [2:0] frm_i,
+    // Vector extension status - CSR_REGFILE
+    input riscv::xs_t vs_i,
+    // Level sensitive (async) interrupts - SUBSYSTEM
+    input logic [1:0] irq_i,
+    // Interrupt control status - CSR_REGFILE
+    input irq_ctrl_t irq_ctrl_i,
+    // Is current mode debug ? - CSR_REGFILE
+    input logic debug_mode_i,
+    // Trap virtual memory - CSR_REGFILE
+    input logic tvm_i,
+    // Timeout wait - CSR_REGFILE
+    input logic tw_i,
+    // Virtual timeout wait - CSR_REGFILE
+    input logic vtw_i,
+    // Trap sret - CSR_REGFILE
+    input logic tsr_i,
+    // Hypervisor user mode - CSR_REGFILE
+    input logic hu_i
 );
   typedef struct packed {
     logic              valid;
@@ -54,8 +96,61 @@ module id2_stage #(
   } issue_struct_t;
   issue_struct_t [CVA6Cfg.NrIssuePorts-1:0] issue_n, issue_q;
 
+  //rajout à à cabler.
+  logic              [CVA6Cfg.NrIssuePorts-1:0]       is_control_flow_instr;
+  scoreboard_entry_t [CVA6Cfg.NrIssuePorts-1:0]       decoded_instruction;
+  logic              [CVA6Cfg.NrIssuePorts-1:0]       decoded_instruction_valid;
+  logic              [CVA6Cfg.NrIssuePorts-1:0][31:0] orig_instr;
+
+  // ---------------------------------------------------------
+  // 1 Decode and emit instruction to issue stage
+  // ---------------------------------------------------------
+
+  for (genvar i = 0; i < CVA6Cfg.NrIssuePorts; i++) begin
+    decoder #(
+        .CVA6Cfg(CVA6Cfg),
+        .branchpredict_sbe_t(branchpredict_sbe_t),
+        .exception_t(exception_t),
+        .irq_ctrl_t(irq_ctrl_t),
+        .scoreboard_entry_t(scoreboard_entry_t),
+        .interrupts_t(interrupts_t),
+        .INTERRUPTS(INTERRUPTS)
+    ) decoder_i (
+        .debug_req_i,
+        .irq_ctrl_i,
+        .irq_i,
+        .pc_i                      (fetch_entry_i[i].address),
+        .is_compressed_i           (is_compressed_dec_i[i]),
+        .is_macro_instr_i          (is_macro_instr_i[i]),
+        .is_zcmt_i                 (is_zcmt_instr_i[i]),
+        .is_last_macro_instr_i     (is_last_macro_instr_i),
+        .is_double_rd_macro_instr_i(is_double_rd_macro_instr_i),
+        .jump_address_i            (jump_address_i),
+        .is_illegal_i              (is_illegal_dec_i[i]),
+        .instruction_i             (instruction_dec_i[i]),
+        .compressed_instr_i        (fetch_entry_i[i].instruction[15:0]),
+        .branch_predict_i          (fetch_entry_i[i].branch_predict),
+        .ex_i                      (fetch_entry_i[i].ex),
+        .priv_lvl_i                (priv_lvl_i),
+        .v_i                       (v_i),
+        .debug_mode_i              (debug_mode_i),
+        .fs_i,
+        .vfs_i,
+        .frm_i,
+        .vs_i,
+        .tvm_i,
+        .tw_i,
+        .vtw_i,
+        .tsr_i,
+        .hu_i,
+        .instruction_o             (decoded_instruction[i]),
+        .orig_instr_o              (orig_instr[i]),
+        .is_control_flow_instr_o   (is_control_flow_instr[i])
+    );
+  end
+
   // ------------------
-  // 3. Pipeline Register
+  // 2 Pipeline Register
   // ------------------
   for (genvar i = 0; i < CVA6Cfg.NrIssuePorts; i++) begin
     assign decoded_instr_o[i] = issue_q[i].sbe;
@@ -78,9 +173,9 @@ module id2_stage #(
       decoded_instr_ack_o[0] = 1'b1; // acknowledge the instruction
       issue_n[0] = '{
           decoded_instr_valid_i[0],
-          decoded_instr_i[0],
-          orig_instr_i[0],
-          is_ctrl_flow_i[0]
+          decoded_instruction[0],
+          orig_instr[0],
+          is_control_flow_instr[0]
       };
     end
     // invalidate the pipeline register on a flush
