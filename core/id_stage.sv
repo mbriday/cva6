@@ -112,12 +112,20 @@ module id_stage #(
     logic[31:0]   instruction_dec;
     fetch_entry_t fetch_entry;
   } issue_struct_t;
-  issue_struct_t [CVA6Cfg.NrIssuePorts-1:0] issue_n, issue_q;
+  // issue_struct_t [CVA6Cfg.NrIssuePorts-1:0] issue_n, issue_q;
 
   //pipeline registers not duplicated with issue ports
-  logic                    is_last_macro_instr_n,is_last_macro_instr_q;
-  logic                    is_double_rd_macro_instr_n, is_double_rd_macro_instr_q;
-  logic [CVA6Cfg.XLEN-1:0] jump_address_n, jump_address_q;
+  // logic                    is_last_macro_instr_n,is_last_macro_instr_q;
+  // logic                    is_double_rd_macro_instr_n, is_double_rd_macro_instr_q;
+  // logic [CVA6Cfg.XLEN-1:0] jump_address_n, jump_address_q;
+
+  typedef struct packed {
+    issue_struct_t [CVA6Cfg.NrIssuePorts-1:0] issue_entry;
+    logic is_last_macro_instr;
+    logic is_double_rd_macro_instr;
+    logic [CVA6Cfg.XLEN-1:0] jump_address;
+  } id2_fifo_entry_t;
+  id2_fifo_entry_t issue_n, issue_q;
 
   // stall required for ZCMP ZCMT CVXIF
   logic              [CVA6Cfg.NrIssuePorts-1:0]       stall_instr_fetch;
@@ -202,16 +210,16 @@ module id_stage #(
           .illegal_instr_o           (is_illegal_zcmp),
           .is_compressed_o           (is_compressed_zcmp),
           .fetch_stall_o             (stall_macro_deco_zcmp),
-          .is_last_macro_instr_o     (is_last_macro_instr_n),
-          .is_double_rd_macro_instr_o(is_double_rd_macro_instr_n)
+          .is_last_macro_instr_o     (issue_n.is_last_macro_instr),
+          .is_double_rd_macro_instr_o(issue_n.is_double_rd_macro_instr)
       );
     end else begin
-      assign instruction_zcmp           = instruction_rvc;
-      assign is_illegal_zcmp            = is_illegal_rvc;
-      assign is_compressed_zcmp         = is_compressed_rvc;
-      assign stall_macro_deco_zcmp      = '0;
-      assign is_last_macro_instr_n      = '0;
-      assign is_double_rd_macro_instr_n = '0;
+      assign instruction_zcmp                 = instruction_rvc;
+      assign is_illegal_zcmp                  = is_illegal_rvc;
+      assign is_compressed_zcmp               = is_compressed_rvc;
+      assign stall_macro_deco_zcmp            = '0;
+      assign issue_n.is_last_macro_instr      = '0;
+      assign issue_n.is_double_rd_macro_instr = '0;
     end
 
     if (CVA6Cfg.RVZCMT) begin
@@ -236,14 +244,14 @@ module id_stage #(
           .jvt_i          (jvt_i),
           .req_port_i     (dcache_req_ports_i),
           .req_port_o     (dcache_req_ports_o),
-          .jump_address_o (jump_address_n)
+          .jump_address_o (issue_n.jump_address)
       );
     end else begin
       assign instruction_zcmt      = instruction_rvc;
       assign is_illegal_zcmt       = is_illegal_rvc;
       assign is_compressed_zcmt    = is_compressed_rvc;
       assign stall_macro_deco_zcmt = '0;
-      assign jump_address_n        = '0;
+      assign issue_n.jump_address  = '0;
     end
 
     if (CVA6Cfg.RVZCMT) begin
@@ -314,17 +322,17 @@ module id_stage #(
   // 3. Pipeline Register
   // ------------------
   for (genvar i = 0; i < CVA6Cfg.NrIssuePorts; i++) begin
-    assign issue_entry_valid_o[i] = issue_q[i].valid;
-    assign is_compressed_dec_o = issue_q[i].is_compressed_dec;
-    assign is_macro_instr_o = issue_q[i].is_macro_instr;
-    assign is_zcmt_instr_o = issue_q[i].is_zcmt_instr;
-    assign is_illegal_dec_o = issue_q[i].is_illegal_dec;
-    assign instruction_dec_o = issue_q[i].instruction_dec;
-    assign fetch_entry_o = issue_q[i].fetch_entry;
+    assign issue_entry_valid_o[i] = issue_q.issue_entry[i].valid;
+    assign is_compressed_dec_o = issue_q.issue_entry[i].is_compressed_dec;
+    assign is_macro_instr_o = issue_q.issue_entry[i].is_macro_instr;
+    assign is_zcmt_instr_o = issue_q.issue_entry[i].is_zcmt_instr;
+    assign is_illegal_dec_o = issue_q.issue_entry[i].is_illegal_dec;
+    assign instruction_dec_o = issue_q.issue_entry[i].instruction_dec;
+    assign fetch_entry_o = issue_q.issue_entry[i].fetch_entry;
   end
-  assign is_last_macro_instr_o = is_last_macro_instr_q;
-  assign is_double_rd_macro_instr_o = is_double_rd_macro_instr_q;
-  assign jump_address_o = jump_address_q;
+  assign is_last_macro_instr_o = issue_q.is_last_macro_instr;
+  assign is_double_rd_macro_instr_o = issue_q.is_double_rd_macro_instr;
+  assign jump_address_o = issue_q.jump_address;
 
   if (CVA6Cfg.SuperscalarEn) begin
     always_comb begin
@@ -339,19 +347,19 @@ module id_stage #(
 
       // Clear the valid flag if issue has acknowledged the instruction
       if (issue_instr_ack_i[0]) begin
-        issue_n[0].valid = 1'b0;
+        issue_n.issue_entry[0].valid = 1'b0;
       end
       if (issue_instr_ack_i[1]) begin
-        issue_n[1].valid = 1'b0;
+        issue_n.issue_entry[1].valid = 1'b0;
       end
 
-      if (!issue_n[0].valid) begin
-        if (issue_n[1].valid) begin
-          issue_n[0] = issue_n[1];
-          issue_n[1].valid = 1'b0;
+      if (!issue_n.issue_entry[0].valid) begin
+        if (issue_n.issue_entry[1].valid) begin
+          issue_n.issue_entry[0] = issue_n.issue_entry[1];
+          issue_n.issue_entry[1].valid = 1'b0;
         end else if (fetch_entry_valid_i[0]) begin
           fetch_entry_ready_o[0] = ~stall_instr_fetch[0];
-          issue_n[0] = '{
+          issue_n.issue_entry[0] = '{
               decoded_instruction_valid[0],
               // decoded_instruction[0],
               // orig_instr[0],
@@ -366,7 +374,7 @@ module id_stage #(
         end
       end
 
-      if (!issue_n[1].valid) begin
+      if (!issue_n.issue_entry[1].valid) begin
         if (fetch_entry_ready_o[0]) begin
           if (fetch_entry_valid_i[1]) begin
             fetch_entry_ready_o[1] = ~stall_instr_fetch[1];
@@ -385,7 +393,7 @@ module id_stage #(
           end
         end else if (fetch_entry_valid_i[0]) begin
           fetch_entry_ready_o[0] = ~stall_instr_fetch[0];
-          issue_n[1] = '{
+          issue_n.issue_entry[1] = '{
               decoded_instruction_valid[0],
               // decoded_instruction[0],
               // orig_instr[0],
@@ -401,8 +409,8 @@ module id_stage #(
       end
 
       if (flush_i) begin
-        issue_n[0].valid = 1'b0;
-        issue_n[1].valid = 1'b0;
+        issue_n.issue_entry[0].valid = 1'b0;
+        issue_n.issue_entry[1].valid = 1'b0;
       end
     end
   end else begin
@@ -414,14 +422,14 @@ module id_stage #(
                                      (CVA6Cfg.CvxifEn && is_illegal_cvxif_i && ~stall_macro_deco && stall_instr_fetch[0])
                                      ? 1'b0 : 1'b1;
       // Clear the valid flag if issue has acknowledged the instruction
-      if (issue_instr_ack_i[0]) issue_n[0].valid = 1'b0;
+      if (issue_instr_ack_i[0]) issue_n.issue_entry[0].valid = 1'b0;
 
       // if we have a space in the register and the fetch is valid, go get it
       // or the issue stage is currently acknowledging an instruction, which means that we will have space
       // for a new instruction
-      if (!issue_n[0].valid && fetch_entry_valid_i[0]) begin
+      if (!issue_n.issue_entry[0].valid && fetch_entry_valid_i[0]) begin
         fetch_entry_ready_o[0] = ~stall_instr_fetch[0];
-        issue_n[0] = '{
+        issue_n.issue_entry[0] = '{
             decoded_instruction_valid[0],
             // decoded_instruction[0],
             // orig_instr[0],
@@ -436,7 +444,7 @@ module id_stage #(
       end
 
       // invalidate the pipeline register on a flush
-      if (flush_i) issue_n[0].valid = 1'b0;
+      if (flush_i) issue_n.issue_entry[0].valid = 1'b0;
     end
   end
   // -------------------------
@@ -445,15 +453,9 @@ module id_stage #(
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (~rst_ni) begin
       issue_q <= '0;
-      is_last_macro_instr_q = '0;
-      is_double_rd_macro_instr_q = '0;
-      jump_address_q = '0;
 
     end else begin
       issue_q <= issue_n;
-      is_last_macro_instr_q = is_last_macro_instr_n;
-      is_double_rd_macro_instr_q = is_double_rd_macro_instr_n;
-      jump_address_q = jump_address_n;
     end
   end
 
